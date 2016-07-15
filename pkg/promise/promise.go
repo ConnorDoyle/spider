@@ -16,34 +16,34 @@ type Promise interface {
 	// Returns whether this promise is complete yet, without blocking.
 	IsComplete() bool
 
-	// Returns whether this promise completed with errors, without blocking.
+	// Returns whether this promise completed with an error, without blocking.
 	IsError() bool
 
 	// Unblock all goroutines awaiting promise completion.
-	Complete(errors []error)
+	Complete(err error)
 
 	// Blocks the caller until the promise is marked complete. This function
 	// is equivalent to invoking AwaitUntil() with a zero-length duration.
 	// To avoid blocking the caller indefinitely, use AwaitUntil() with a
 	// non-zero duration instead.
-	Await() []error
+	Await() error
 
 	// Blocks the caller until the promise is marked complete, or the supplied
 	// duration has elapsed. If the promise has not been completed before the
-	// await times out, this function returns with nonempty errors. If the
+	// await times out, this function returns with a non-nil error. If the
 	// supplied duration has zero length, this await will never time out.
-	AwaitUntil(timeout time.Duration) []error
+	AwaitUntil(timeout time.Duration) error
 
 	// Invokes the supplied function after this promise completes. This function
 	// is equivalent to invoking AndThenUntil() with a zero-length duration.
 	// To avoid blocking a goroutine indefinitely, use AndThenUntil() with a
 	// non-zero duration instead.
-	AndThen(f func([]error))
+	AndThen(f func(error))
 
 	// Invokes the supplied function after this promise completes or times out
 	// after the supplied duration. If the supplied duration has zero length,
 	// the deferred execution will never time out.
-	AndThenUntil(timeout time.Duration, f func([]error))
+	AndThenUntil(timeout time.Duration, f func(error))
 }
 
 // NewPromise returns a new incomplete promise.
@@ -58,7 +58,7 @@ type promise struct {
 	sync.Mutex
 
 	complete     bool
-	errors       []error
+	err          error
 	completeChan chan struct{}
 }
 
@@ -67,25 +67,25 @@ func (p *promise) IsComplete() bool {
 }
 
 func (p *promise) IsError() bool {
-	return p.IsComplete() && len(p.errors) > 0
+	return p.IsComplete() && p.err != nil
 }
 
-func (p *promise) Complete(errors []error) {
+func (p *promise) Complete(err error) {
 	p.Lock()
 	defer p.Unlock()
 
 	if !p.complete {
 		p.complete = true
-		p.errors = errors
+		p.err = err
 		close(p.completeChan)
 	}
 }
 
-func (p *promise) Await() []error {
+func (p *promise) Await() error {
 	return p.AwaitUntil(0 * time.Second)
 }
 
-func (p *promise) AwaitUntil(duration time.Duration) []error {
+func (p *promise) AwaitUntil(duration time.Duration) error {
 	var timeoutChan <-chan time.Time
 	if duration.Nanoseconds() > 0 {
 		timeoutChan = time.After(duration)
@@ -93,17 +93,17 @@ func (p *promise) AwaitUntil(duration time.Duration) []error {
 
 	select {
 	case <-p.completeChan:
-		return p.errors
+		return p.err
 	case <-timeoutChan:
-		return []error{fmt.Errorf("Await timed out for promise after [%s]", duration)}
+		return fmt.Errorf("Await timed out for promise after [%s]", duration)
 	}
 }
 
-func (p *promise) AndThen(f func([]error)) {
+func (p *promise) AndThen(f func(error)) {
 	p.AndThenUntil(0*time.Nanosecond, f)
 }
 
-func (p *promise) AndThenUntil(d time.Duration, f func([]error)) {
+func (p *promise) AndThenUntil(d time.Duration, f func(error)) {
 	go func() {
 		f(p.AwaitUntil(d))
 	}()
@@ -142,11 +142,11 @@ func (r *rendezVous) IsComplete() bool {
 }
 
 func (r *rendezVous) A() {
-	r.a.Complete([]error{})
+	r.a.Complete(nil)
 	r.b.Await()
 }
 
 func (r *rendezVous) B() {
-	r.b.Complete([]error{})
+	r.b.Complete(nil)
 	r.a.Await()
 }

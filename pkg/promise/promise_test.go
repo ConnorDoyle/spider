@@ -16,22 +16,22 @@ func TestPromise(t *testing.T) {
 		Convey("it should return the completion status", func() {
 			p := NewPromise()
 			So(p.IsComplete(), ShouldBeFalse)
-			p.Complete([]error{})
+			p.Complete(nil)
 			So(p.IsComplete(), ShouldBeTrue)
 		})
 	})
 	Convey("IsError()", t, func() {
 		Convey("it should return the error status", func() {
-			Convey("after completing without errors, IsError() returns false", func() {
+			Convey("after completing without an error, IsError() returns false", func() {
 				p := NewPromise()
 				So(p.IsError(), ShouldBeFalse)
-				p.Complete([]error{})
+				p.Complete(nil)
 				So(p.IsError(), ShouldBeFalse)
 			})
-			Convey("after completing with errors, IsError() returns true", func() {
+			Convey("after completing with an error, IsError() returns true", func() {
 				p := NewPromise()
 				So(p.IsError(), ShouldBeFalse)
-				p.Complete([]error{errors.New("ERROR")})
+				p.Complete(errors.New("ERROR"))
 				So(p.IsError(), ShouldBeTrue)
 			})
 		})
@@ -46,23 +46,23 @@ func TestPromise(t *testing.T) {
 
 			for i := 0; i < numWaiters; i++ {
 				go func() {
-					Convey("all waiting goroutines should see empty errors", t, func() {
-						errors := p.Await()
-						So(errors, ShouldBeEmpty)
+					Convey("all waiting goroutines should see a nil error", t, func() {
+						err := p.Await()
+						So(err, ShouldBeNil)
 						wg.Done()
 					})
 				}()
 			}
 
-			p.Complete([]error{})
+			p.Complete(nil)
 			wg.Wait()
 		})
 	})
 	Convey("AwaitUntil()", t, func() {
-		Convey("it should return with errors on timeout", func() {
+		Convey("it should return with an error on timeout", func() {
 			p := NewPromise()
-			errors := p.AwaitUntil(time.Nanosecond)
-			So(errors, ShouldNotBeEmpty)
+			err := p.AwaitUntil(time.Nanosecond)
+			So(err, ShouldNotBeNil)
 		})
 	})
 	Convey("AndThen()", t, func() {
@@ -72,7 +72,7 @@ func TestPromise(t *testing.T) {
 			funcRan := false
 			c := make(chan struct{})
 
-			p.AndThen(func(errors []error) {
+			p.AndThen(func(err error) {
 				funcRan = true
 				close(c)
 			})
@@ -81,7 +81,7 @@ func TestPromise(t *testing.T) {
 			So(funcRan, ShouldBeFalse)
 
 			// Trigger callback execution by completing the queued job.
-			p.Complete([]error{})
+			p.Complete(nil)
 
 			// Wait for the deferred function to be executed.
 			<-c
@@ -93,11 +93,11 @@ func TestPromise(t *testing.T) {
 			p := NewPromise()
 			timeout := time.Nanosecond
 
-			var resultErrors []error
+			var resultErr error
 			c := make(chan struct{})
 
-			callback := func(errors []error) {
-				resultErrors = errors
+			callback := func(err error) {
+				resultErr = err
 				close(c)
 			}
 
@@ -105,9 +105,9 @@ func TestPromise(t *testing.T) {
 
 			// Wait for the deferred function to be executed.
 			<-c
-			So(resultErrors, ShouldNotBeEmpty)
+			So(resultErr, ShouldNotBeNil)
 			expectedMsg := "Await timed out for promise after [1ns]"
-			So(resultErrors[0].Error(), ShouldEqual, expectedMsg)
+			So(resultErr.Error(), ShouldEqual, expectedMsg)
 		})
 	})
 }
