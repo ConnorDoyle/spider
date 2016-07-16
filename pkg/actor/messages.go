@@ -8,3 +8,8 @@ const (
 	// as it will to continue to process its mailbox in order.
 	PoisonPill internalMessage = iota
 )
+
+// Stopped is sent to supervisors and death-watchers of an actor when it dies.
+type Stopped struct {
+	address Address
+}

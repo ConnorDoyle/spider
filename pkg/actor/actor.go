@@ -9,10 +9,11 @@ package actor
 // 2. The actor subsequent processing rule: processing one message happens
 //    before processing the next message by the same sender.
 type Actor interface {
-	// Init is invoked by the actor system after this actor has been created.
-	// Actor implementations should save a local reference to the context for
-	// later use, e.g. `otherActor.Send(cx.Self, "ping")`
-	Init(cx Context)
+	// Prestart is invoked by the actor system after this actor has been created
+	// but before it begins processing its mailbox.
+	// Actor implementations should save the context locally for later use, e.g.
+	// `otherActor.Send(cx.Self, "ping")`
+	Prestart(cx Context)
 
 	// Returns a friendly identifier for this actor in the system hierarchy.
 	Name() string
@@ -38,6 +39,11 @@ type Ref interface {
 	// Message values should be immutable, or at least mutation should be
 	// avoided. The type system doesn't let us enforce that, so just be careful.
 	Send(replyTo Ref, msg interface{})
+
+	// AddWatcher provides death notifications in the actor system.
+	// The watcher will receive an actor.Stopped message after this actor ref
+	// dies.
+	AddWatcher(Ref)
 }
 
 // Address encodes the receive address of an actor ref.

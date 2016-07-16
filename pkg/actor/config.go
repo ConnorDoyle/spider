@@ -10,5 +10,7 @@ type Config struct {
 
 // DefaultConfig returns a default actor configuration.
 func DefaultConfig() Config {
-	return Config{256}
+	return Config{
+		MailboxSize: 256,
+	}
 }
