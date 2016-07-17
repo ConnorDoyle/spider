@@ -22,24 +22,13 @@ func init() {
 }
 
 // implements actor.Actor
-type testActor struct {
-	name string
-	cx   Context
-	t    *testing.T
-}
+type testActor struct{ cx Context }
 
-func (a *testActor) Name() string {
-	a.t.Logf("Actor [%s] in Name", a.name)
-	return a.name
-}
 func (a *testActor) Prestart(cx Context) {
-	a.t.Logf("Actor [%s] in Prestart", cx.Self.Address())
 	promises[cx.Self.Address()] = promise.NewPromise()
 	a.cx = cx
 }
 func (a *testActor) Receive(rx ReceiveContext, msg interface{}) {
-	a.t.Logf("Actor [%s] in Receive", a.cx.Self.Address())
-	a.t.Logf("Received message [%v]", msg)
 	lastReceiveContext = rx
 	lastMessage = msg
 	promises[a.cx.Self.Address()].Complete(nil)
@@ -47,12 +36,10 @@ func (a *testActor) Receive(rx ReceiveContext, msg interface{}) {
 
 // implements actor.Actor
 type probe struct {
-	name    string
 	cx      Context
 	handler func(Event)
 }
 
-func (p *probe) Name() string        { return p.name }
 func (p *probe) Prestart(cx Context) { p.cx = cx }
 func (p *probe) Receive(rx ReceiveContext, msg interface{}) {
 	p.handler(msg.(Event))
@@ -65,27 +52,27 @@ func TestActorSystemBasics(t *testing.T) {
 		So(sys, ShouldNotBeNil)
 		defer sys.Shutdown()
 
-		foo, err := sys.NewActor(Spore{
+		foo, err := sys.NewActor("foo", Info{
 			DefaultConfig(),
-			func() Actor { return &testActor{name: "foo", t: t} },
+			func() Actor { return &testActor{} },
 		})
 		So(err, ShouldBeNil)
 		So(foo, ShouldNotBeNil)
 
-		bar, err := sys.NewActor(Spore{
+		bar, err := sys.NewActor("bar", Info{
 			DefaultConfig(),
-			func() Actor { return &testActor{name: "bar", t: t} },
+			func() Actor { return &testActor{} },
 		})
 		So(err, ShouldBeNil)
 		So(bar, ShouldNotBeNil)
 
 		Convey("and the returned refs should have the right address", func() {
-			So(foo.Address(), ShouldEqual, Address("spider:///user/foo"))
-			So(bar.Address(), ShouldEqual, Address("spider:///user/bar"))
+			So(foo.Address(), ShouldEqual, Address("spider:///test/user/foo"))
+			So(bar.Address(), ShouldEqual, Address("spider:///test/user/bar"))
 
 			Convey("and the system should remember creating the actors", func() {
-				So(sys.Lookup(Address("spider:///user/foo")), ShouldNotBeNil)
-				So(sys.Lookup(Address("spider:///user/bar")), ShouldNotBeNil)
+				So(sys.Lookup(Address("spider:///test/user/foo")), ShouldNotBeNil)
+				So(sys.Lookup(Address("spider:///test/user/bar")), ShouldNotBeNil)
 
 				Convey("and the underlying actor should receive messages", func() {
 					foo.Send(bar, "ping")
@@ -104,11 +91,10 @@ func TestActorSystemBasics(t *testing.T) {
 					// The probe handler closes over this identifier.
 					sendData := []SendData{}
 
-					p, err := sys.NewActor(Spore{
+					p, err := sys.NewActor("probe", Info{
 						DefaultConfig(),
 						func() Actor {
 							return &probe{
-								name: "testProbe",
 								handler: func(ev Event) {
 									d := ev.Data.(SendData)
 									sendData = append(sendData, d)
@@ -141,6 +127,22 @@ func TestActorSystemBasics(t *testing.T) {
 					So(sendData[1].Message, ShouldResemble, Stopped{foo.Address()})
 					So(sendData[1].Recipient.Address(), ShouldEqual, bar.Address())
 					So(sendData[1].ReplyTo, ShouldBeNil)
+
+					Convey("and shutdown should stop remaining actors", func() {
+						So(sys.State(), ShouldEqual, SystemRunning)
+						sys.Shutdown()
+						bar.Life().Await()
+						So(bar.Life().IsComplete(), ShouldBeTrue)
+						So(sys.State(), ShouldEqual, SystemStopped)
+					})
+
+					Convey("and graceful shutdown should stop remaining actors", func() {
+						So(sys.State(), ShouldEqual, SystemRunning)
+						sys.GracefulShutdown()
+						bar.Life().Await()
+						So(bar.Life().IsComplete(), ShouldBeTrue)
+						So(sys.State(), ShouldEqual, SystemStopped)
+					})
 				})
 			})
 		})

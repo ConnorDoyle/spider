@@ -1,5 +1,9 @@
 package actor
 
+import (
+	"github.com/nqn/spider/pkg/promise"
+)
+
 // Actor is a concurrency abstraction.
 //
 // Spider guarantees the following two "happens before" rules:
@@ -14,9 +18,6 @@ type Actor interface {
 	// Actor implementations should save the context locally for later use, e.g.
 	// `otherActor.Send(cx.Self, "ping")`
 	Prestart(cx Context)
-
-	// Returns a friendly identifier for this actor in the system hierarchy.
-	Name() string
 
 	// Receive is invoked by the actor system after a message has been sent
 	// to this actor. The actor system treats the entire Receive method as
@@ -44,6 +45,10 @@ type Ref interface {
 	// The watcher will receive an actor.Stopped message after this actor ref
 	// dies.
 	AddWatcher(Ref)
+
+	// Life returns a promise that will complete after the underlying actor is
+	// stopped.
+	Life() promise.ReadOnlyPromise
 }
 
 // Address encodes the receive address of an actor ref.

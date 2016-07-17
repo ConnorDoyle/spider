@@ -13,14 +13,19 @@ import (
 // Functions that operate on this type (IsComplete, Complete,
 // Await, AwaitUntil) are idempotent and thread-safe.
 type Promise interface {
+	ReadOnlyPromise
+
+	// Unblock all goroutines awaiting promise completion.
+	Complete(err error)
+}
+
+// ReadOnlyPromise is a view of Promise without the Complete method.
+type ReadOnlyPromise interface {
 	// Returns whether this promise is complete yet, without blocking.
 	IsComplete() bool
 
 	// Returns whether this promise completed with an error, without blocking.
 	IsError() bool
-
-	// Unblock all goroutines awaiting promise completion.
-	Complete(err error)
 
 	// Blocks the caller until the promise is marked complete. This function
 	// is equivalent to invoking AwaitUntil() with a zero-length duration.

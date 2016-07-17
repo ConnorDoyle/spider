@@ -18,7 +18,8 @@ import (
 type System interface {
 	Name() string
 	Config() SystemConfig
-	NewActor(Spore) (Ref, error)
+	State() SystemState
+	NewActor(name string, info Info) (Ref, error)
 	Lookup(Address) Ref
 	Shutdown()
 	GracefulShutdown()
@@ -26,8 +27,21 @@ type System interface {
 	RemoveProbe(probe Ref)
 }
 
-// Spore is a description of how to instantiate a concrete actor.
-type Spore struct {
+// SystemState represents the state of an actor system.
+type SystemState uint32
+
+const (
+	// SystemRunning means that actors in the system are processing
+	// messages.
+	SystemRunning SystemState = iota
+
+	// SystemStopped means that  actors in the system are stopped and no new
+	// actors can be created. This is a terminal state.
+	SystemStopped
+)
+
+// Info is a description of how to instantiate a concrete actor.
+type Info struct {
 	Config
 	Factory
 }
@@ -69,6 +83,7 @@ func NewSystem(name string, config SystemConfig) (System, error) {
 	sys := &system{}
 	sys.name = name
 	sys.config = config
+	sys.state = SystemRunning
 	sys.actors = make(map[Address]actorRef)
 	sys.probes = make(map[Address]Ref)
 	return sys, nil
@@ -78,6 +93,8 @@ func NewSystem(name string, config SystemConfig) (System, error) {
 type system struct {
 	name   string
 	config SystemConfig
+
+	state SystemState
 
 	actors      map[Address]actorRef // TODO(CD): refactor flat hierarchy into a tree
 	actorsMutex sync.Mutex
@@ -94,9 +111,12 @@ func (s *system) Config() SystemConfig {
 	return s.config
 }
 
-func (s *system) NewActor(spore Spore) (Ref, error) {
-	underlying := spore.Factory()
-	address := Address(fmt.Sprintf("spider:///user/%s", underlying.Name()))
+func (s *system) State() SystemState {
+	return s.state
+}
+
+func (s *system) NewActor(name string, info Info) (Ref, error) {
+	address := Address(fmt.Sprintf("spider:///%s/user/%s", s.name, name))
 
 	/////////////////////////////////////////////////////////////////////////////
 	// Begin critical section
@@ -104,15 +124,21 @@ func (s *system) NewActor(spore Spore) (Ref, error) {
 	// We acquire the mutex associated with this actor system before mutating
 	// the actors data structure.
 	s.actorsMutex.Lock()
+
+	if s.state != SystemRunning {
+		s.actorsMutex.Unlock()
+		return nil, fmt.Errorf("failed to create actor [%s] because actor system [%s] is not running", address, s.name)
+	}
 	if _, exists := s.actors[address]; exists {
 		s.actorsMutex.Unlock()
 		return nil, fmt.Errorf("actor with address [%s] already exists", address)
 	}
+
 	ref := actorRef{
 		address:    address,
-		underlying: underlying,
+		underlying: info.Factory(),
 		system:     s,
-		mailbox:    make(chan envelope, spore.Config.MailboxSize),
+		mailbox:    make(chan envelope, info.Config.MailboxSize),
 		life:       promise.NewPromise(),
 	}
 	s.actors[address] = ref
@@ -144,7 +170,7 @@ func (s *system) NewActor(spore Spore) (Ref, error) {
 		delete(s.actors, ref.address)
 		delete(s.probes, ref.address)
 		// End critical section
-		/////////////////////////////////////////////////////////////////////////////
+		///////////////////////////////////////////////////////////////////////////
 	})
 
 	// Start the actor's worker routine.
@@ -161,16 +187,34 @@ func (s *system) Lookup(address Address) Ref {
 
 func (s *system) Shutdown() {
 	log.WithField("name", s.name).Info("Actor system shutting down")
-	for _, ref := range s.actors {
-		ref.life.Complete(nil)
-	}
+	s.shutdown(func(r actorRef) { r.life.Complete(nil) })
 }
 
 func (s *system) GracefulShutdown() {
 	log.Info("Actor system shutting down \"gracefully\"")
+	s.shutdown(func(r actorRef) { r.Send(nil, PoisonPill) })
+}
+
+func (s *system) shutdown(strategy func(actorRef)) {
+	/////////////////////////////////////////////////////////////////////////////
+	// Begin critical section
+	//
+	// We acquire the mutex associated with this actor system to prevent more
+	// actors from being created underneath us (via NewActor). While we have
+	// the lock, we set the system state to SystemStopped, which will cause
+	// subsequent calls to NewActor to return an error once we have released the
+	// lock.
+	s.actorsMutex.Lock()
+	defer s.actorsMutex.Unlock()
+
+	s.state = SystemStopped
+
+	// Stop all actors in the system using the supplied strategy.
 	for _, ref := range s.actors {
-		ref.Send(nil, PoisonPill)
+		strategy(ref)
 	}
+	// End critical section
+	/////////////////////////////////////////////////////////////////////////////
 }
 
 func (s *system) AddProbe(probe Ref) {
@@ -286,6 +330,10 @@ func (r actorRef) AddWatcher(watcher Ref) {
 		}).Debug("Sending death notification")
 		watcher.Send(nil, Stopped{r.address})
 	})
+}
+
+func (r actorRef) Life() promise.ReadOnlyPromise {
+	return r.life
 }
 
 func (r actorRef) start() {
