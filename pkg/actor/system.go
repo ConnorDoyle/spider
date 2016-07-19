@@ -2,6 +2,7 @@ package actor
 
 import (
 	"fmt"
+	re "regexp"
 	"sync"
 
 	log "github.com/Sirupsen/logrus"
@@ -97,7 +98,7 @@ type system struct {
 	state SystemState
 
 	actors      map[Address]actorRef // TODO(CD): refactor flat hierarchy into a tree
-	actorsMutex sync.Mutex
+	actorsMutex sync.RWMutex
 
 	probes      map[Address]Ref
 	probesMutex sync.RWMutex
@@ -116,13 +117,19 @@ func (s *system) State() SystemState {
 }
 
 func (s *system) NewActor(name string, info Info) (Ref, error) {
+	// Validate that the supplied actor name is sane.
+	namePattern := re.MustCompile("[a-z0-9][a-z0-9-]*")
+	if !namePattern.MatchString(name) {
+		return nil, fmt.Errorf("name must conform to %s", namePattern.String())
+	}
+
 	address := Address(fmt.Sprintf("spider:///%s/user/%s", s.name, name))
 
 	/////////////////////////////////////////////////////////////////////////////
 	// Begin critical section
 	//
-	// We acquire the mutex associated with this actor system before mutating
-	// the actors data structure.
+	// We acquire the writers' lock associated with the  actors collection
+	// before mutating the actors data structure.
 	s.actorsMutex.Lock()
 
 	if s.state != SystemRunning {
@@ -146,17 +153,14 @@ func (s *system) NewActor(name string, info Info) (Ref, error) {
 	// End critical section
 	/////////////////////////////////////////////////////////////////////////////
 
-	// Invoke the actor PreStart hook.
-	ref.underlying.Prestart(Context{SystemContext{ref.system}, ref})
-
 	// Defer cleanup following actor termination.
 	ref.life.AndThen(func(err error) {
 		log.WithField("address", ref.address).Debug("Cleaning up actor state")
 		///////////////////////////////////////////////////////////////////////////
 		// Begin critical section
 		//
-		// We acquire the mutex associated with this actor system before mutating
-		// the actors data structure.
+		// We acquire the writers' lock associated with the  actors collection
+		// before mutating the actors data structure.
 		s.actorsMutex.Lock()
 		defer s.actorsMutex.Unlock()
 
@@ -182,7 +186,17 @@ func (s *system) NewActor(name string, info Info) (Ref, error) {
 }
 
 func (s *system) Lookup(address Address) Ref {
+	/////////////////////////////////////////////////////////////////////////////
+	// Begin critical section
+	//
+	// We acquire the readers' lock for the actors collection to avoid indexing
+	// the map while it is being concurrently modified via NewActor or a dead
+	// actor's cleanup continuation.
+	s.actorsMutex.RLock()
+	defer s.actorsMutex.RUnlock()
 	return s.actors[address]
+	// End critical section
+	/////////////////////////////////////////////////////////////////////////////
 }
 
 func (s *system) Shutdown() {
@@ -199,11 +213,11 @@ func (s *system) shutdown(strategy func(actorRef)) {
 	/////////////////////////////////////////////////////////////////////////////
 	// Begin critical section
 	//
-	// We acquire the mutex associated with this actor system to prevent more
-	// actors from being created underneath us (via NewActor). While we have
-	// the lock, we set the system state to SystemStopped, which will cause
-	// subsequent calls to NewActor to return an error once we have released the
-	// lock.
+	// We acquire the writers' lock associated with the actors collection to
+	// prevent more actors from being created underneath us (via NewActor).
+	// While we have the lock, we set the system state to SystemStopped, which
+	// will cause subsequent calls to NewActor to return an error once we have
+	// released the lock.
 	s.actorsMutex.Lock()
 	defer s.actorsMutex.Unlock()
 
@@ -270,7 +284,7 @@ func (r actorRef) Address() Address {
 }
 
 func (r actorRef) Send(replyTo Ref, msg interface{}) {
-	replyAddress := Address("")
+	replyAddress := Address("<none>")
 	if replyTo != nil {
 		replyAddress = replyTo.Address()
 	}
@@ -339,6 +353,10 @@ func (r actorRef) Life() promise.ReadOnlyPromise {
 func (r actorRef) start() {
 	go func() {
 		log.WithField("address", r.address).Info("Starting actor")
+
+		// Invoke the actor PreStart hook.
+		r.underlying.Prestart(Context{SystemContext{r.system}, r})
+
 		for !r.life.IsComplete() {
 			// Take a message from the mailbox
 			e := <-r.mailbox

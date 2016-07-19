@@ -3,6 +3,8 @@
 package actor
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 
 	log "github.com/Sirupsen/logrus"
@@ -37,12 +39,12 @@ func (a *testActor) Receive(rx ReceiveContext, msg interface{}) {
 // implements actor.Actor
 type probe struct {
 	cx      Context
-	handler func(Event)
+	handler func(Context, ReceiveContext, interface{})
 }
 
 func (p *probe) Prestart(cx Context) { p.cx = cx }
 func (p *probe) Receive(rx ReceiveContext, msg interface{}) {
-	p.handler(msg.(Event))
+	p.handler(p.cx, rx, msg)
 }
 
 func TestActorSystemBasics(t *testing.T) {
@@ -95,8 +97,8 @@ func TestActorSystemBasics(t *testing.T) {
 						DefaultConfig(),
 						func() Actor {
 							return &probe{
-								handler: func(ev Event) {
-									d := ev.Data.(SendData)
+								handler: func(_ Context, _ ReceiveContext, msg interface{}) {
+									d := msg.(Event).Data.(SendData)
 									sendData = append(sendData, d)
 									switch d.Message.(type) {
 									case Stopped:
@@ -146,5 +148,44 @@ func TestActorSystemBasics(t *testing.T) {
 				})
 			})
 		})
+	})
+}
+
+func TestActorSystemVerticalScaling(t *testing.T) {
+	Convey("An actor system should scale vertically", t, func() {
+		sys, err := NewSystem("test", SystemConfig{})
+		So(err, ShouldBeNil)
+		So(sys, ShouldNotBeNil)
+		defer sys.GracefulShutdown()
+
+		numActors := 10000
+		var wg sync.WaitGroup
+		wg.Add(numActors)
+
+		// Create lots of actors.
+		for i := 0; i < numActors; i++ {
+			r, err := sys.NewActor(fmt.Sprintf("a-%d", i), Info{
+				DefaultConfig(),
+				func() Actor {
+					return &probe{
+						handler: func(cx Context, _ ReceiveContext, msg interface{}) {
+							wg.Done()
+							cx.Self.Send(cx.Self, PoisonPill)
+						}}
+				},
+			})
+			So(err, ShouldBeNil)
+			So(r, ShouldNotBeNil)
+		}
+
+		// Send each one a message.
+		for i := 0; i < numActors; i++ {
+			r := sys.Lookup(Address(fmt.Sprintf("spider:///test/user/a-%d", i)))
+			So(r, ShouldNotBeNil)
+			r.Send(nil, "xyzzy")
+		}
+
+		// Wait for all of the actors to receive and signal.
+		wg.Wait()
 	})
 }
