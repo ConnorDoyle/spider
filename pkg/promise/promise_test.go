@@ -57,6 +57,32 @@ func TestPromise(t *testing.T) {
 			p.Complete(nil)
 			wg.Wait()
 		})
+		Convey("it not block waiting for a waiter", func() {
+			p1 := NewPromise()
+			p2 := NewPromise()
+			done := NewPromise()
+
+			go func() {
+				Convey("all waiting goroutines should see a nil error", t, func() {
+					// Wait for p2, then wait for p1
+					p2.Await()
+					p1.Await()
+					done.Complete(nil)
+				})
+			}()
+
+			// Complete p1, then complete p2.
+			//
+			// Since the waiting gorouting awaits the promises in opposite order,
+			// if complete blocks this thread then we will have deadlock.
+			p1.Complete(nil)
+			p2.Complete(nil)
+			done.Await()
+
+			So(p1.IsComplete(), ShouldBeTrue)
+			So(p2.IsComplete(), ShouldBeTrue)
+			So(done.IsComplete(), ShouldBeTrue)
+		})
 	})
 	Convey("AwaitUntil()", t, func() {
 		Convey("it should return with an error on timeout", func() {
