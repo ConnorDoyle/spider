@@ -1,0 +1,27 @@
+hash: f8df28fcec1bda02d53c65f0b0eef3654b99506d641cd5767adc579f78d90a26
+updated: 2016-07-16T21:14:18.644131635-07:00
+imports:
+- name: github.com/Sirupsen/logrus
+  version: a283a10442df8dc09befd873fab202bf8a253d6a
+- name: golang.org/x/sys
+  version: b518c298ac9dc94b6ac0757394f50d10c5dfa25a
+  subpackages:
+  - unix
+testImports:
+- name: github.com/gopherjs/gopherjs
+  version: 090403452ab6979e3b7c054ceb7ee23da91b2ae4
+  subpackages:
+  - js
+- name: github.com/jtolds/gls
+  version: 8ddce2a84170772b95dd5d576c48d517b22cac63
+- name: github.com/smartystreets/assertions
+  version: 2063fd1cc7c975db70502811a34b06ad034ccdf2
+  subpackages:
+  - internal/go-render/render
+  - internal/oglematchers
+- name: github.com/smartystreets/goconvey
+  version: 4622128e06c77c0174e17a7f0ed2db19a989b473
+  subpackages:
+  - convey
+  - convey/reporting
+  - convey/gotest
