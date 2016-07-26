@@ -64,17 +64,11 @@ func TestActorSystemBasics(t *testing.T) {
 		So(sys, ShouldNotBeNil)
 		defer sys.Shutdown()
 
-		foo, err := sys.NewActor("foo", Info{
-			DefaultConfig(),
-			func() Actor { return &testActor{} },
-		})
+		foo, err := sys.NewDefaultActor("foo", func() Actor { return &testActor{} })
 		So(err, ShouldBeNil)
 		So(foo, ShouldNotBeNil)
 
-		bar, err := sys.NewActor("bar", Info{
-			DefaultConfig(),
-			func() Actor { return &testActor{} },
-		})
+		bar, err := sys.NewDefaultActor("bar", func() Actor { return &testActor{} })
 		So(err, ShouldBeNil)
 		So(bar, ShouldNotBeNil)
 
@@ -114,6 +108,7 @@ func TestActorSystemBasics(t *testing.T) {
 							}
 						},
 					)
+
 					So(err, ShouldBeNil)
 					So(p, ShouldNotBeNil)
 

@@ -23,6 +23,7 @@ type System interface {
 	Config() SystemConfig
 	State() SystemState
 	NewActor(name string, info Info) (Ref, error)
+	NewDefaultActor(name string, factory Factory) (Ref, error)
 	Lookup(Address) Ref
 	Shutdown()
 	GracefulShutdown()
@@ -116,6 +117,10 @@ func (s *system) Config() SystemConfig {
 
 func (s *system) State() SystemState {
 	return s.state
+}
+
+func (s *system) NewDefaultActor(name string, factory Factory) (Ref, error) {
+	return s.NewActor(name, Info{DefaultConfig(), factory})
 }
 
 func (s *system) NewActor(name string, info Info) (Ref, error) {
