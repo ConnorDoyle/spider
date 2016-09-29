@@ -37,15 +37,24 @@ func (a *testActor) Receive(rx ReceiveContext, msg interface{}) {
 	promises[a.cx.Self.Address()].Complete(nil)
 }
 
+func DefaultStatelessActor(sys System,
+	name string,
+	handler func(Context, ReceiveContext, interface{})) (Ref, error) {
+	return sys.NewActor(name, Info{
+		DefaultConfig(),
+		func() Actor { return &statelessActor{handler: handler} },
+	})
+}
+
 // implements actor.Actor
-type probe struct {
+type statelessActor struct {
 	cx      Context
 	handler func(Context, ReceiveContext, interface{})
 }
 
-func (p *probe) Prestart(cx Context) { p.cx = cx }
-func (p *probe) Receive(rx ReceiveContext, msg interface{}) {
-	p.handler(p.cx, rx, msg)
+func (a *statelessActor) Prestart(cx Context) { a.cx = cx }
+func (a *statelessActor) Receive(rx ReceiveContext, msg interface{}) {
+	a.handler(a.cx, rx, msg)
 }
 
 func TestActorSystemBasics(t *testing.T) {
@@ -94,23 +103,17 @@ func TestActorSystemBasics(t *testing.T) {
 					// The probe handler closes over this identifier.
 					sendData := []SendData{}
 
-					p, err := sys.NewActor("probe", Info{
-						DefaultConfig(),
-						func() Actor {
-							return &probe{
-								handler: func(_ Context, _ ReceiveContext, msg interface{}) {
-									d := msg.(Event).Data.(SendData)
-									sendData = append(sendData, d)
-									switch d.Message.(type) {
-									case Stopped:
-										// Complete the probe's half of the rendez-vous
-										rv.A()
-									}
-								},
+					p, err := DefaultStatelessActor(sys, "probe",
+						func(_ Context, _ ReceiveContext, msg interface{}) {
+							d := msg.(Event).Data.(SendData)
+							sendData = append(sendData, d)
+							switch d.Message.(type) {
+							case Stopped:
+								// Complete the probe's half of the rendez-vous
+								rv.A()
 							}
 						},
-					})
-
+					)
 					So(err, ShouldBeNil)
 					So(p, ShouldNotBeNil)
 
@@ -165,18 +168,14 @@ func TestActorSystemVerticalScaling(t *testing.T) {
 
 		// Create lots of actors.
 		for i := 0; i < numActors; i++ {
-			r, err := sys.NewActor(fmt.Sprintf("a-%d", i), Info{
-				DefaultConfig(),
-				func() Actor {
-					return &probe{
-						handler: func(cx Context, _ ReceiveContext, msg interface{}) {
-							wg.Done()
-							cx.Self.Send(cx.Self, PoisonPill)
-						}}
+			a, err := DefaultStatelessActor(sys, fmt.Sprintf("a-%d", i),
+				func(cx Context, _ ReceiveContext, msg interface{}) {
+					wg.Done()
+					cx.Self.Send(cx.Self, PoisonPill)
 				},
-			})
+			)
 			So(err, ShouldBeNil)
-			So(r, ShouldNotBeNil)
+			So(a, ShouldNotBeNil)
 		}
 
 		// Send each one a message.
@@ -199,20 +198,15 @@ func TestActorSystemAsk(t *testing.T) {
 		defer sys.Shutdown()
 
 		// Create an actor.
-		adder, err := sys.NewActor("adder", Info{
-			DefaultConfig(),
-			func() Actor {
-				return &probe{
-					handler: func(cx Context, rx ReceiveContext, msg interface{}) {
-						switch msg.(type) {
-						case int:
-							// Reply with the next larger integer value.
-							rx.ReplyTo.Send(cx.Self, msg.(int)+1)
-						}
-					},
+		adder, err := DefaultStatelessActor(sys, "adder",
+			func(cx Context, rx ReceiveContext, msg interface{}) {
+				switch msg.(type) {
+				case int:
+					// Reply with the next larger integer value.
+					rx.ReplyTo.Send(cx.Self, msg.(int)+1)
 				}
 			},
-		})
+		)
 		So(err, ShouldBeNil)
 		So(adder, ShouldNotBeNil)
 
