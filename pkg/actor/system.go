@@ -4,8 +4,10 @@ import (
 	"fmt"
 	re "regexp"
 	"sync"
+	"time"
 
 	log "github.com/Sirupsen/logrus"
+	"github.com/pborman/uuid"
 
 	"github.com/nqn/spider/pkg/promise"
 )
@@ -117,13 +119,21 @@ func (s *system) State() SystemState {
 }
 
 func (s *system) NewActor(name string, info Info) (Ref, error) {
+	return s.newActor("user", name, info)
+}
+
+func (s *system) newSystemActor(name string, info Info) (Ref, error) {
+	return s.newActor("system", name, info)
+}
+
+func (s *system) newActor(namespace string, name string, info Info) (Ref, error) {
 	// Validate that the supplied actor name is sane.
 	namePattern := re.MustCompile("[a-z0-9][a-z0-9-]*")
 	if !namePattern.MatchString(name) {
 		return nil, fmt.Errorf("name must conform to %s", namePattern.String())
 	}
 
-	address := Address(fmt.Sprintf("spider:///%s/user/%s", s.name, name))
+	address := Address(fmt.Sprintf("spider:///%s/%s/%s", s.name, namespace, name))
 
 	/////////////////////////////////////////////////////////////////////////////
 	// Begin critical section
@@ -330,6 +340,33 @@ func (r actorRef) Send(replyTo Ref, msg interface{}) {
 		}
 	}
 	r.mailbox <- envelope{replyTo, msg}
+}
+
+func (r actorRef) Ask(msg interface{}, timeout time.Duration) (interface{}, error) {
+	reply := promise.NewPromise()
+	var answer interface{}
+	workerName := fmt.Sprintf("ask-%s", uuid.NewRandom())
+	proxy, err := r.system.newSystemActor(workerName, Info{
+		Config{MailboxSize: 2},
+		func() Actor { return newAskProxy(reply, &answer) },
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Send the message, specifying the new proxy actor as the reply-to
+	// address.
+	r.Send(proxy, msg)
+
+	// Now, wait up to the supplied duration the proxy to signal receipt of
+	// a reply message.
+	err = reply.AwaitUntil(timeout)
+
+	// Either the ask proxy filled in the answer and completed the promise,
+	// or we have timed out waiting for a response. In either case, clean up the
+	// proxy and return whatever we got (answer or error).
+	proxy.Send(nil, PoisonPill)
+	return answer, err
 }
 
 func (r actorRef) AddWatcher(watcher Ref) {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	log "github.com/Sirupsen/logrus"
 
@@ -187,5 +188,37 @@ func TestActorSystemVerticalScaling(t *testing.T) {
 
 		// Wait for all of the actors to receive and signal.
 		wg.Wait()
+	})
+}
+
+func TestActorSystemAsk(t *testing.T) {
+	Convey("An actor system should implement ask", t, func() {
+		sys, err := NewSystem("test", SystemConfig{})
+		So(err, ShouldBeNil)
+		So(sys, ShouldNotBeNil)
+		defer sys.Shutdown()
+
+		// Create an actor.
+		adder, err := sys.NewActor("adder", Info{
+			DefaultConfig(),
+			func() Actor {
+				return &probe{
+					handler: func(cx Context, rx ReceiveContext, msg interface{}) {
+						switch msg.(type) {
+						case int:
+							// Reply with the next larger integer value.
+							rx.ReplyTo.Send(cx.Self, msg.(int)+1)
+						}
+					},
+				}
+			},
+		})
+		So(err, ShouldBeNil)
+		So(adder, ShouldNotBeNil)
+
+		// Send a message and await reply using Actor.Ask.
+		answer, err := adder.Ask(5, time.Minute)
+		So(err, ShouldBeNil)
+		So(answer, ShouldEqual, 6)
 	})
 }

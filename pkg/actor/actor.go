@@ -1,6 +1,8 @@
 package actor
 
 import (
+	"time"
+
 	"github.com/nqn/spider/pkg/promise"
 )
 
@@ -40,6 +42,14 @@ type Ref interface {
 	// Message values should be immutable, or at least mutation should be
 	// avoided. The type system doesn't let us enforce that, so just be careful.
 	Send(replyTo Ref, msg interface{})
+
+	// Sends a message and awaits a reply up to a timeout duration. Note that
+	// Ask is more expensive and less scalable than one-way message passing
+	// with Send.
+	//
+	// Message values should be immutable, or at least mutation should be
+	// avoided. The type system doesn't let us enforce that, so just be careful.
+	Ask(msg interface{}, timeout time.Duration) (interface{}, error)
 
 	// AddWatcher provides death notifications in the actor system.
 	// The watcher will receive an actor.Stopped message after this actor ref
