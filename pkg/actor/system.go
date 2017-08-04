@@ -9,7 +9,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/pborman/uuid"
 
-	"github.com/nqn/spider/pkg/promise"
+	"github.com/topology-io/spider/pkg/promise"
 )
 
 //////////////////////////////////////////////////////////////////////////////

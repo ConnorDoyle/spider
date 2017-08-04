@@ -10,8 +10,8 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
-	"github.com/nqn/spider/pkg/promise"
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/topology-io/spider/pkg/promise"
 )
 
 var (

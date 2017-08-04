@@ -1,7 +1,7 @@
 package actor
 
 import (
-	"github.com/nqn/spider/pkg/promise"
+	"github.com/topology-io/spider/pkg/promise"
 )
 
 // askProxy is a proxy actor for non-actor code that wants to block waiting

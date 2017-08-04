@@ -1,5 +1,5 @@
-package: github.com/nqn/spider
-homepage: https://github.com/nqn/spider
+package: github.com/topology-io/spider
+homepage: https://github.com/topology-io/spider
 license: Apache 2.0
 owners:
   - name: Connor Doyle

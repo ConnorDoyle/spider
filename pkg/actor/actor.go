@@ -3,7 +3,7 @@ package actor
 import (
 	"time"
 
-	"github.com/nqn/spider/pkg/promise"
+	"github.com/topology-io/spider/pkg/promise"
 )
 
 // Actor is a concurrency abstraction.
